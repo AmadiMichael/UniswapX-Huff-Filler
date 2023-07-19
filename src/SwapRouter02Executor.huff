@@ -1,0 +1,487 @@
+///@author Michael Amadi
+
+
+// Inherited Imports
+#include "huffmate/auth/Owned.huff"
+#include "huffmate/utils/SafeTransferLib.huff"
+#include "huffmate/utils/Constants.huff"
+#include "huff-console/Console.huff"
+
+
+// Self interface
+// #define function reactorCallback(((address reactor, address swapper, uint256 nonce, uint256 deadline, address additionalValidationContract, bytes additionalValidationData) info, (address token, uint256 amount, uint256 maxAmount) input, (address token, uint256 amount, address recipient)[] outputs, bytes sig, bytes32 hash)[] resolvedOrders, address filler, bytes fillData) returns()
+#define function multicall(address[] tokensToApprove, bytes[] multicallData) payable returns()
+#define function unwrapWETH(address recipient) payable returns()
+#define function withdrawETH(address recipient) payable returns()
+
+
+// Errors
+#define error CallerNotWhitelisted()
+#define error MsgSenderNotReactor()
+#define error UNAUTHORIZED()
+
+
+// constants
+#define constant SWAP_ROUTER_02 = 0x08526067985167EcFcB1F9720C72DbBF36c96018
+#define constant WHITELISTED_CALLER = 0x34A1D3fff3958843C43aD80F30b94c510645C316
+#define constant REACTOR = 0x0F8458E544c9D4C7C25A881240727209caae20B8
+#define constant WETH = 0x72384992222BE015DE0146a6D7E5dA0E19d2Ba49 // 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+
+
+#define macro CONSTRUCTOR() = {
+    // wen huff immutable runtime code appending ?
+    // for now use huff constants
+    OWNED_CONSTRUCTOR()
+}
+
+
+
+#define macro MAIN() = {
+    0x00 calldataload 0xe0 shr                                                              // [func-sig]
+
+    // dispatch
+    dup1 0x9943fa89                  eq REACTOR_CALLBACK_JUMPDEST        jumpi
+    dup1 __FUNC_SIG(multicall)       eq MULTICALL_JUMPDEST               jumpi
+    dup1 __FUNC_SIG(unwrapWETH)       eq UNWRAP_ETH_JUMPDEST              jumpi
+    dup1 __FUNC_SIG(withdrawETH)     eq WITHDRAW_ETH_JUMPDEST            jumpi
+
+    // check owned
+    OWNED_MAIN()
+
+    // jump to receive if callvalue is greater than 0
+    callvalue RECEIVE jumpi
+
+    // revert if no match
+    0x00 0x00 revert
+
+
+    REACTOR_CALLBACK_JUMPDEST:
+        REACTOR_CALLBACK()
+
+    MULTICALL_JUMPDEST:
+        MULTICALL()
+    
+    UNWRAP_ETH_JUMPDEST:
+        UNWRAP_WETH()
+
+    WITHDRAW_ETH_JUMPDEST:
+        WITHDRAW_ETH()
+
+
+    
+    RECEIVE:
+        stop
+}
+
+
+
+
+/**
+ * Signature = `reactorCallback(((address,address,uint256,uint256,address,bytes),(address,uint256,uint256),(address,uint256,address)[],bytes,bytes32)[],address,bytes)`
+ * Okay lets see how this looks like in bytes
+ * 
+ * 
+ * e.g tx
+ * 0x9943fa890000000000000000000000000000000000000000000000000000000000000060000000000000000000000000d27383048f41ef6ea1ed7b01be977c7e40b0d94600000000000000000000000000000000000000000000000000000000000003600000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000009f8f72aa9304c8b593d555f12ef6589cc3a579a20000000000000000000000000000000000000000000000034c64ac112bf7449f0000000000000000000000000000000000000000000000034c64ac112bf7449f00000000000000000000000000000000000000000000000000000000000001c00000000000000000000000000000000000000000000000000000000000000240d4b7431b9220f439dcdc33674a57b1f04802c6b025bced24a5261835575f1472000000000000000000000000e80bf394d190851e215d5f67b67f8f5a52783f1e000000000000000000000000e7c06cb253e5906f2764f140243fa17b1a154a290468323203bc6495790039563b340a3f18385535e0ca85624cda46978763b3010000000000000000000000000000000000000000000000000000000064b744ff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000006b175474e89094c44da98b954eedeac495271d0f000000000000000000000000000000000000000000000c5e9593d5102d43880c000000000000000000000000e7c06cb253e5906f2764f140243fa17b1a154a290000000000000000000000000000000000000000000000000000000000000041ef503cc8f34f0bc4607bbf6b3d14d19f7b2411a81ab676c5fc44787210d6a3fc7b97c697f5e42bceeb896e63441f7dc423022486f94d70d33d01ca10412fc9571b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000020000000000000000000000009f8f72aa9304c8b593d555f12ef6589cc3a579a20000000000000000000000001111111254eeb25477b68fb85ed929f73a9605820000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000044095ea7b30000000000000000000000001111111254eeb25477b68fb85ed929f73a960582ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000048812aa3caf00000000000000000000000092f3f71cef740ed5784874b8c70ff87ecdf335880000000000000000000000009f8f72aa9304c8b593d555f12ef6589cc3a579a20000000000000000000000006b175474e89094c44da98b954eedeac495271d0f00000000000000000000000092f3f71cef740ed5784874b8c70ff87ecdf335880000000000000000000000003f56b162075115a62a5b693518e8891bf8f1d8700000000000000000000000000000000000000000000000034c64ac112bf7449f000000000000000000000000000000000000000000000c6208adfe7ddbf8cb7d000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000000000000000000000160000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002f90000000000000000000000000000000000000000000002db0002ad00026300a0c9e75c480000000000000000090100000000000000000000000000000000000000000000000000023500007b0c209f8f72aa9304c8b593d555f12ef6589cc3a579a2517f9dd285e75b599234f7221227339478d0fcc86ae4071118002dc6c0517f9dd285e75b599234f7221227339478d0fcc800000000000000000000000000000000000000000000013954c097772251a5009f8f72aa9304c8b593d555f12ef6589cc3a579a200a007e5c0d20000000000000000000000000000000000000000000001960001470000f800a0c9e75c48000000000000000012020000000000000000000000000000000000000000000000000000ca00007b0c209f8f72aa9304c8b593d555f12ef6589cc3a579a2c2adda861f89bbb333c90c492cb837741916a2256ae4071198002dc6c0c2adda861f89bbb333c90c492cb837741916a22500000000000000000000000000000000000000000000000025c9bedd185541429f8f72aa9304c8b593d555f12ef6589cc3a579a202a00000000000000000000000000000000000000000000000015517c0cadf859937ee63c1e501e8c6c9227491c0a8156a0106a0204d881bb7e5319f8f72aa9304c8b593d555f12ef6589cc3a579a202a00000000000000000000000000000000000000000000000000000000c221aa705ee63c1e50111b815efb8f581194ae79006d24e0d814b7697f6c02aaa39b223fe8d0a0e5c4f27ead9083c756cc202a0000000000000000000000000000000000000000000000b0950fd6c1c4a7c21f0ee63c1e50048da0965ab2d2cbf1c17c09cfb5cbe67ad5b1406dac17f958d2ee523a2206206994597c13d831ec700a0f2fa6b666b175474e89094c44da98b954eedeac495271d0f000000000000000000000000000000000000000000000c6259d734be49b369460000000000000000457d43ca11ac2d0a80a06c4eca276b175474e89094c44da98b954eedeac495271d0f1111111254eeb25477b68fb85ed929f73a96058200000000000000e4cc31cf000000000000000000000000000000000000000000000000
+ *
+ * 0x00 <-> 0x04: 0x9943fa89 (function signature)
+ * 0x04 <-> 0x24: 0x60 (pointer to length of `resolvedOrders` array)
+ * 0x24 <-> 0x44: `filler`
+ * 0x44 <-> 0x64: pointer to `fillData`
+
+    resolvedOrders: ((address reactor, address swapper, uint256 nonce, uint256 deadline, address additionalValidationContract, bytes additionalValidationData) info, (address token, uint256 amount, uint256 maxAmount) input, (address token, uint256 amount, address recipient)[] outputs, bytes sig, bytes32 hash)[] resolvedOrders
+ * 0x64 <-> 0x84: 0x01 (length of `resolvedOrders` array)
+ * 0x84 <-> 0xa4: 0x20 (offset to start of `resolvedOrders`[0])
+ * 0xa4 <-> 0xc4: 0xe0 (offset to start of `info`)
+    
+    resolvedOrders[0].input: (address token, uint256 amount, uint256 maxAmount) input
+ * 0xc4 <-> 0xe4: `resolvedOrders`[0].`input`.`token`
+ * 0xe4 <-> 0x104: `resolvedOrders`[0].`input`.`amount`
+ * 0x104 <-> 0x124: `resolvedOrders`[0].`input`.`maxAmount`
+ * 0x124 <-> 0x144: 0x1c0 (0ffset to length of `resolvedOrders`[0].`outputs` array)
+ * 0x144 <-> 0x164: 0x240 (offset to length of sig bytes)
+ * 0x164 <-> 0x184: message hash
+
+    resolvedOrders[0].info: (address reactor, address swapper, uint256 nonce, uint256 deadline, address additionalValidationContract, bytes additionalValidationData) info
+ * 0x184 <-> 0x1a4: `resolvedOrders`[0].`info`.`reactor`
+ * 0x1a4 <-> 0x1c4: `resolvedOrders`[0].`info`.`swapper`
+ * 0x1c4 <-> 0x1e4: `resolvedOrders`[0].`info`.`nonce`
+ * 0x1e4 <-> 0x204: `resolvedOrders`[0].`info`.`deadline`
+ * 0x204 <-> 0x224: `resolvedOrders`[0].`info`.`additionalValidationContract`
+ * 0x224 <-> 0x244: 0xc0 (offset to length of `resolvedOrders`[0].`info`.`additionalValidationData`)
+ * 0x244 <-> 0x264: length of `resolvedOrders`[0].`info`.`additionalValidationData` (note: validation data should come next but if length is 0 it won't come next)
+
+    resolvedOrders[0].outputs: (address token, uint256 amount, address recipient)[] outputs
+ * 0x264 <-> 0x284: length of `resolvedOrders`[0].`outputs` array
+ * 0x284 <-> 0x2a4: `resolvedOrders`[0].`outputs`[0].`token`
+ * 0x2a4 <-> 0x2c4: `resolvedOrders`[0].`outputs`[0].`amount`
+ * 0x2c4 <-> 0x2e4: `resolvedOrders`[0].`outputs`[0].`recipient`
+
+    resolvedOrders[0].sig: bytes sig
+ * 0x2e4 <-> 0x304: length of `resolvedOrders`[0].`sig`. e.g 0x41
+ * 0x304 <-> 0x324: first 32 bytes of `resolvedOrders`[0].`sig`
+ * 0x324 <-> 0x344: second 32 bytes of `resolvedOrders`[0].`sig`
+ * 0x344 <-> 0x364: last byte of `resolvedOrders`[0].`sig` (right padded)
+
+    filldata: bytes fillData
+ * 0x364 <-> 0x384: length of filldata
+
+
+    fillData is meant to be decoded into `(address[] memory tokensToApproveForSwapRouter02, bytes[] memory multicallData)`
+    e.g with tx example used above (both have a length of 2)
+ * 0x384 <-> 0x3a4: 0x40 (offset to length of `tokensToApproveForSwapRouter02` array)
+ * 0x3a4 <-> 0x3c4: 0xa0 (offset to length of `multicallData` array)
+
+    tokensToApproveForSwapRouter02: address[] memory tokensToApproveForSwapRouter02
+ * 0x3c4 <-> 0x3e4: length of `tokensToApproveForSwapRouter02` array
+ * 0x3e4 <-> 0x404: `tokensToApproveForSwapRouter02`[0]
+ * 0x404 <-> 0x424: `tokensToApproveForSwapRouter02`[1]
+
+    multicallData: bytes[] memory multicallData
+ * 0x424 <-> 0x444: length of `multicallData` array
+ * 0x444 <-> 0x464: 0x40 (offset to length of `multicallData`[0])
+ * 0x464 <-> 0x484: 0xc0 (offset to length of `multicallData`[1])
+ * 0x484 <-> 0x4a4: 0x44 (length of `multicallData`[0])
+ * 0x4a4 <-> 0x4c4: first 32 bytes of `multicallData`[0]
+ * 0x4c4 <-> 0x4e4: second 32 bytes of `multicallData`[0]
+ * 0x4e4 <-> 0x504: last 4 bytes of `multicallData`[0] right padded
+ * 0x504 <-> 0x524: 0x488 (length of `multicallData`[1])
+ * 0x524 <-> (0x524 + 0x488) || 0x9c0: `multicallData`[1]
+ */
+#define macro REACTOR_CALLBACK() = {
+    REVERT_IF_MsgSenderNotReactor()                                                         // []
+    REVERT_IF_CallerNotWhitelisted()                                                        // []
+
+
+    // approve and swap tokens
+    0x44 calldataload 0x04 add                                                              // [fillDataOffset]     
+    dup1 0x40 add                                                                           // [offsetToMulticallDatalengthOffset, fillDataOffset]        
+    swap1 0x20 add                                                                          // [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+    APPROVE_AND_SWAP_TOKENS()                                                               // []
+
+
+    // distribute tokens
+    DISTRIBUTE_TOKENS()
+
+
+    // stop execution
+    stop
+}
+
+
+/**
+ * Signature = `multicall(address[] tokensToApprove, bytes[] multicallData)`
+ *
+ * The layout considering tokensToApprove and multicallData are 2 in length
+ *
+ * 0x00 <-> 0x04:
+ * 0x04 <-> 0x24: offset to length of tokensToApprove
+ * 0x24 <-> 0x44: offset to length of multicalldata
+
+    tokensToApprove: address[] calldata tokensToApprove
+ * 0x44 <-> 0x64: length of `tokensToApprove` array
+ * 0x64 <-> 0x84: `tokensToApprove`[0]
+ * 0x84 <-> 0xa4: `tokensToApprove`[1]
+
+    multicallData: bytes[] memory multicallData
+ * 0xa4 <-> 0xc4: length of `multicallData` array
+ * 0xc4 <-> 0xe4: 0x40 (offset to length of `multicallData`[0])
+ * 0xe4 <-> 0x104: 0xc0 (offset to length of `multicallData`[1])
+ * 0x104 <-> 0x124: 0x44 (length of `multicallData`[0])
+ * 0x124 <-> 0x144: first 32 bytes of `multicallData`[0]
+ * 0x144 <-> 0x164: second 32 bytes of `multicallData`[0]
+ * 0x164 <-> 0x184: last 4 bytes of `multicallData`[0] right padded
+ * 0x184 <-> 0x1a4: 0x488 (length of `multicallData`[1])
+ * 0x1a4 <-> (0x1a4 + 0x488): `multicallData`[1]
+ */
+#define macro MULTICALL() = {
+    // only owner
+    ONLY_OWNER()
+
+    // approve and swap tokens
+    0x04 calldataload 0x24 calldataload                                                     // [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+    APPROVE_AND_SWAP_TOKENS()                                                               // []
+
+    // stop execution
+    stop
+}
+
+
+
+#define macro UNWRAP_WETH() = {
+    // only owner
+    ONLY_OWNER()
+
+    // get weth balance
+    GET_BALANCE_OF()                                                                        // [this.wethBalance]
+
+    // Note: cannot use returndatasize in any of the calls below to replace 0x00 as data (32 bytes) has been returned already from balanceOf above
+
+    // unwrap weth
+    __RIGHTPAD(0x2e1a7d4d) 0x00 mstore                                                      // [this.wethBalance]
+    0x04 mstore                                                                             // []
+    0x00 0x00 0x24 0x00                                                                     // [in, insize, out, outsize]
+    0x00 [WETH] gas call                                                                    // [success]
+    iszero unwrapETHFailed jumpi                                                            // []
+
+
+    // send all eth
+    selfbalance                                                                             // [address(this).balance]
+    0x04 calldataload                                                                       // [recipient, address(this).balance]
+    // use safe transfer eth which does not use returndatasize
+    SAFE_TRANSFER_ETH()                                                                     // []                                                                     // []
+
+
+    // stop execution
+    stop
+
+
+    unwrapETHFailed:
+        BUBBLE_UP_ERROR()
+}
+
+
+
+#define macro WITHDRAW_ETH() = {
+    // only owner
+    ONLY_OWNER()
+
+    // send all eth
+    selfbalance                                                                             // [address(this).balance]
+    0x04 calldataload                                                                       // [recipient, address(this).balance]
+    SAFE_TRANSFER_ETH_OVERRIDE()                                                            // []                                                                   // []
+
+    stop
+}
+
+
+
+
+
+
+
+/// INTERNAL MACROS
+#define macro APPROVE_AND_SWAP_TOKENS() = takes(0) returns(0) {
+    // input stack = [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+
+    // loop does not consider array length 0
+    // approve
+    0x00                                                                                    // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+    dup2 0x60 add calldataload                                                              // [tokensToApprove[0], i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+    
+    loop:                                                                                   // [tokensToApprove[i], i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+        [__UINT256_MAX] [SWAP_ROUTER_02]                                                    // [spender, value, tokensToApprove[i] i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+        SAFE_APPROVE(0x00)                                                                  // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+
+        // increment i
+        0x01 add                                                                            // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+
+        // break loop if i == tokensToApproveLengthOffset
+        dup2 0x40 add calldataload dup2 eq                                                  // [(i == tokensToApproveLength), i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+        multicall_exec jumpi                                                                // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+
+        // update tokensToApprove[i]
+        dup1 0x20 mul                                                                       // [(0x20 * i), i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+        dup3 add calldataload                                                               // [tokensToApprove[i], i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+
+        // continue loop
+        loop jump                                                                           // [tokensToApprove[i], i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+
+
+    multicall_exec:                                                                         // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+        pop pop                                                                             // [offsetToMulticallDatalengthOffset]
+        // multicall
+
+        INTERNAL_MULTICALL()                                                                // []
+}
+
+
+#define macro INTERNAL_MULTICALL() = {
+    // input stack = [multicallDataTotalsize]
+    //0x5ae401dc
+    //0xd6a0e487
+
+    // multicall
+    // mstore multicall function sig
+    __RIGHTPAD(0x5ae401dc) 0x00 mstore                                                      // [offsetToMulticallDatalengthOffset]
+    // mstore deadline
+    [__UINT256_MAX] 0x04 mstore                                                             // [offsetToMulticallDatalengthOffset]
+    // mstore offset to start of multicallData array
+    0x40 0x24 mstore                                                                        // [offsetToMulticallDatalengthOffset]
+
+    0x20 dup2 calldataload sub dup2 add                                                     // [multicallDatalengthOffset, offsetToMulticallDatalengthOffset]
+    dup1 calldatasize sub                                                                   // [multicallDataSize, offsetToMulticallDatalengthOffset]
+    dup1 swap2 0x44 calldatacopy                                                            // [multicallDataSize]
+
+    0x00 0x00                                                                               // [0x00, 0x00, multicallDataSize]
+    swap2 0x28 add 0x00                                                                              // [0x00, multicallDataSize, 0x00, 0x00]
+    0x00 [SWAP_ROUTER_02]                                                                   // [to, value, 0x00, multicallDataSize, 0x00, 0x00]
+    gas call                                                                                // [success]
+
+    INTERNAL_MULTICALL_continue jumpi
+
+    BUBBLE_UP_ERROR()
+
+    INTERNAL_MULTICALL_continue:
+}
+
+
+
+// 0x64 will always be the offset for length of orders
+#define macro DISTRIBUTE_TOKENS() = takes(0) returns(0) {
+    // loop does not consider array length 0
+
+    0x64 calldataload                                                                       // [ordersLength]
+    0x00                                                                                    // [i, ordersLength]
+
+    loop1:                                                                                  // [i, ordersLength]
+
+        // store indexOffset
+        dup1 0x20 mul                                                                       // [indexOffset, i, ordersLength]
+        // LOG_STACK_2(0x00)
+
+        // store contextOffset
+        0x84 add                                                                            // [contextOffset, i, ordersLength]
+        // LOG_STACK_2(0x00)
+
+        // store outputs length offset
+        dup1 calldataload                                                                   // [calldataload(contextOffset), contextOffset, i, ordersLength]
+        0x64 add                                                                            // [add(calldataload(contextOffset), 0x64), contextOffset, i, ordersLength]
+        0x80 add calldataload                                                               // [calldataload(add(add(calldataload(contextOffset), 0x64), 0x80)), contextOffset, i, ordersLength]
+        add                                                                                 // [outputsLengthOffset, i, ordersLength]
+        // LOG_STACK_2(0x00)
+
+        // also store outputs length
+        dup1 calldataload                                                                   // [outputsLength, outputsLengthOffset, i, ordersLength]
+
+        // store j
+        0x00 swap1                                                                          // [outputsLengthOffset, j, outputsLength, i, ordersLength]
+
+        // LOG_STACK_4(0x00)
+        loop2:                                                                                  // [outputsLengthOffset, j, outputsLength, i, ordersLength]
+            dup1 0x20 add calldataload                                                          // [token, outputsLengthOffset, j, outputsLength, i, ordersLength]
+            dup2 0x40 add calldataload                                                          // [amount, token, outputsLengthOffset, j, outputsLength, i, ordersLength]
+            dup3 0x60 add calldataload                                                          // [to, amount, token, ooutputsLengthOffset, j, outputsLength, i, ordersLength]
+        LOG_STACK_4(0x00)
+
+            SAFE_TRANSFER(0x00)                                                                 // [outputsLengthOffset, j, outputsLength, i, ordersLength]
+            pop                                                                                 // [j, outputsLength, i, ordersLength]
+
+            // update j
+            0x01 add                                                                            // [j, outputsLength, i, ordersLength]
+            dup2 calldataload dup2 eq                                                           // [(j == outputsLength), j, outputsLength, i, ordersLength]
+            loop2 jumpi                                                                         // [j, outputsLength, i, ordersLength]
+
+            pop pop                                                                            // [i, ordersLength]
+
+
+
+    // update i and end loop if i == orders.length
+    0x01 add                                                                                // [i, ordersLength]
+    dup2 dup2 eq                                                                            // [(i == ordersLength), i, ordersLength]
+    DISTRIBUTE_TOKENS_continue jumpi                                                        // [i, ordersLength]
+
+    loop1 jump
+
+
+    DISTRIBUTE_TOKENS_continue:                                                             // [i, ordersLength]
+
+}
+
+
+
+
+
+
+
+/// @notice Safely transfers an `amount` of eth to the address `to`
+/// @dev use this over huffmate safe transfer eth to change `push1 0x00`'s and `dup1`'s to returndatasize
+#define macro SAFE_TRANSFER_ETH_OVERRIDE() = takes (2) returns(0) {
+    // Input stack:            [to, amount]
+    // Output stack:           []
+
+    returndatasize returndatasize returndatasize returndatasize                             // [0x00, 0x00, 0x00, 0x00, to, amount]
+    swap5 swap1 swap4                                                                       // [to, amount, 0x00, 0x00, 0x00, 0x00]
+    gas call                                                                                // [call_success]
+    success jumpi                                                                           // []
+
+    // `ETHTransferFailed()` error
+    0xb12d13eb 0x00 mstore
+    0x04 0x00 revert
+
+    success:
+}
+
+
+#define macro GET_BALANCE_OF() = takes(0) returns(1) {
+    // returns balance of token0 and token1
+    // safe to assume they both have code deployed to them as adding liquidity for them in this pair wouldn't have been possible otherwise
+
+    __RIGHTPAD(0x70a08231) returndatasize mstore                                            // []
+    address 0x04 mstore                                                                     // []
+    0x20 0x00 0x24 returndatasize                                                           // [in, insize, out, outsize]
+    [WETH] gas staticcall                                                                   // [success]
+
+    iszero balanceOfCallFailed jumpi                                                        // []
+    0x00 mload                                                                              // [weth.balanceOf(address(this))]
+    GET_BALANCE_OF_continue jump                                                            // [weth.balanceOf(address(this))]
+
+    balanceOfCallFailed:
+        callvalue callvalue revert
+
+    GET_BALANCE_OF_continue:                                                                // [weth.balanceOf(address(this))]
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#define macro REVERT_IF_MsgSenderNotReactor() = takes(0) returns(0) {
+    caller [REACTOR] eq                                                                     // [msg.sender == address(reactor)]
+    REVERT_IF_MsgSenderNotReactor_continue jumpi                                            // []
+
+    __ERROR(MsgSenderNotReactor) 0x00 mstore                                                // []
+    0x04 0x00 revert
+
+    REVERT_IF_MsgSenderNotReactor_continue:                                                 // []
+}
+
+
+#define macro REVERT_IF_CallerNotWhitelisted() = {
+    0x24 calldataload                                                                       // [filler]
+    [WHITELISTED_CALLER] eq                                                                 // [filler == whitelistedCaller]
+    REVERT_IF_CallerNotWhitelisted_continue jumpi                                           // []
+
+    __ERROR(CallerNotWhitelisted) 0x00 mstore                                               // []
+    0x04 0x00 revert
+
+    REVERT_IF_CallerNotWhitelisted_continue:                                                // []
+}
+
+#define macro ONLY_OWNER() = takes (0) returns (0) {
+    [OWNER] sload                                                                           // [owner]
+    caller eq authed jumpi                                                                  // []
+     
+    // revert with "UNAUTHORIZED"
+    __ERROR(UNAUTHORIZED) 0x00 mstore
+    0x04 0x00 revert
+
+
+    authed:                                                                                 // []
+}
+
+
+
+#define macro BUBBLE_UP_ERROR() = takes(0) returns(0) {
+    returndatasize 0x00 0x00 returndatacopy                                                 // []
+    returndatasize 0x00 revert                                                              // []
+}

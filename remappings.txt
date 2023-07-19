@@ -1,0 +1,9 @@
+ds-test/=lib/forge-std/lib/ds-test/src/
+forge-gas-snapshot/=lib/UniswapX/lib/forge-gas-snapshot/src/
+forge-std/=lib/forge-std/src/
+openzeppelin-contracts/=lib/UniswapX/lib/openzeppelin-contracts/contracts/
+solmate/=lib/UniswapX/lib/solmate/
+uniswapx/=lib/UniswapX/
+foundry-huff/=lib/foundry-huff/src/
+huffmate/=lib/huffmate/src/
+huff-console/=lib/Huff-Console/src/
