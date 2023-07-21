@@ -10,5 +10,10 @@ out/
 # Docs
 docs/
 
+
+# DSStores
+.DS_Store
+lib/.DS_Store
+
 # Dotenv file
 .env

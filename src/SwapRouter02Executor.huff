@@ -22,10 +22,8 @@
 
 
 // constants
-#define constant SWAP_ROUTER_02 = 0x08526067985167EcFcB1F9720C72DbBF36c96018
-#define constant WHITELISTED_CALLER = 0x34A1D3fff3958843C43aD80F30b94c510645C316
-#define constant REACTOR = 0x0F8458E544c9D4C7C25A881240727209caae20B8
-#define constant WETH = 0x72384992222BE015DE0146a6D7E5dA0E19d2Ba49 // 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+// Use wrappers as replacement for immutable variables
+
 
 
 #define macro CONSTRUCTOR() = {
@@ -42,7 +40,7 @@
     // dispatch
     dup1 0x9943fa89                  eq REACTOR_CALLBACK_JUMPDEST        jumpi
     dup1 __FUNC_SIG(multicall)       eq MULTICALL_JUMPDEST               jumpi
-    dup1 __FUNC_SIG(unwrapWETH)       eq UNWRAP_ETH_JUMPDEST              jumpi
+    dup1 __FUNC_SIG(unwrapWETH)      eq UNWRAP_ETH_JUMPDEST              jumpi
     dup1 __FUNC_SIG(withdrawETH)     eq WITHDRAW_ETH_JUMPDEST            jumpi
 
     // check owned
@@ -199,7 +197,8 @@
     ONLY_OWNER()
 
     // approve and swap tokens
-    0x04 calldataload 0x24 calldataload                                                     // [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+    0x24                                                                                    // [offsetToMulticallDatalengthOffset]
+    0x04                                                                                    // [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
     APPROVE_AND_SWAP_TOKENS()                                                               // []
 
     // stop execution
@@ -260,36 +259,42 @@
 
 
 
+
 /// INTERNAL MACROS
 #define macro APPROVE_AND_SWAP_TOKENS() = takes(0) returns(0) {
     // input stack = [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
 
-    // loop does not consider array length 0
     // approve
-    0x00                                                                                    // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-    dup2 0x60 add calldataload                                                              // [tokensToApprove[0], i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-    
-    loop:                                                                                   // [tokensToApprove[i], i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-        [__UINT256_MAX] [SWAP_ROUTER_02]                                                    // [spender, value, tokensToApprove[i] i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-        SAFE_APPROVE(0x00)                                                                  // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+    dup1 calldataload add
+    dup1 calldataload                                                                      // [tokensToApproveLength, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+
+    // no loop is length is 0
+    dup2 iszero multicall_exec jumpi
+
+    0x00 swap1 swap2                                                                        // [tokensToApproveLengthOffset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+    0x20 add                                                                                // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+
+    loop:                                                                                   // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+        dup1 dup3 0x20 mul add calldataload                                                 // [tokensToApprove[i], tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+        [__UINT256_MAX] [SWAP_ROUTER_02]                                                    // [spender, value, tokensToApprove[i], tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+        SAFE_APPROVE(0x00)                                                                  // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
 
         // increment i
-        0x01 add                                                                            // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+        swap1 0x01 add                                                                      // [i, tokensToApprove[0]Offset, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+        
+        // break loop if i == tokensToApproveLength
+        dup3 dup2 eq                                                                        // [(i == tokensToApproveLength), i, tokensToApprove[0]Offset, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+        multicall_exec jumpi                                                                // [i, tokensToApprove[0]Offset, tokensToApproveLength, offsetToMulticallDatalengthOffset]
 
-        // break loop if i == tokensToApproveLengthOffset
-        dup2 0x40 add calldataload dup2 eq                                                  // [(i == tokensToApproveLength), i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-        multicall_exec jumpi                                                                // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-
-        // update tokensToApprove[i]
-        dup1 0x20 mul                                                                       // [(0x20 * i), i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-        dup3 add calldataload                                                               // [tokensToApprove[i], i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+        // arrange stack
+        swap1                                                                               // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
 
         // continue loop
-        loop jump                                                                           // [tokensToApprove[i], i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
+        loop jump                                                                           // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
 
 
-    multicall_exec:                                                                         // [i, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-        pop pop                                                                             // [offsetToMulticallDatalengthOffset]
+    multicall_exec:                                                                         // [i, tokensToApprove[0]Offset, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+        pop pop pop                                                                         // [offsetToMulticallDatalengthOffset]
         // multicall
 
         INTERNAL_MULTICALL()                                                                // []
@@ -297,9 +302,7 @@
 
 
 #define macro INTERNAL_MULTICALL() = {
-    // input stack = [multicallDataTotalsize]
-    //0x5ae401dc
-    //0xd6a0e487
+    // input stack = [offsetToMulticallDatalengthOffset]
 
     // multicall
     // mstore multicall function sig
@@ -309,12 +312,17 @@
     // mstore offset to start of multicallData array
     0x40 0x24 mstore                                                                        // [offsetToMulticallDatalengthOffset]
 
-    0x20 dup2 calldataload sub dup2 add                                                     // [multicallDatalengthOffset, offsetToMulticallDatalengthOffset]
-    dup1 calldatasize sub                                                                   // [multicallDataSize, offsetToMulticallDatalengthOffset]
-    dup1 swap2 0x44 calldatacopy                                                            // [multicallDataSize]
+    // get offset
+    dup1 calldataload swap1 0x20 swap1 sub add                                              // [offset]
 
+    // get totalLength
+    dup1 calldatasize sub                                                                   // [multicallDataSize, offset]
+
+    // copy data into mem
+    dup1 swap2 0x44 calldatacopy                                                            // [multicallDataSize]
+    
     0x00 0x00                                                                               // [0x00, 0x00, multicallDataSize]
-    swap2 0x28 add 0x00                                                                              // [0x00, multicallDataSize, 0x00, 0x00]
+    swap2 0x44 add 0x00                                                                     // [0x00, multicallDataSize, 0x00, 0x00]
     0x00 [SWAP_ROUTER_02]                                                                   // [to, value, 0x00, multicallDataSize, 0x00, 0x00]
     gas call                                                                                // [success]
 
@@ -329,57 +337,63 @@
 
 // 0x64 will always be the offset for length of orders
 #define macro DISTRIBUTE_TOKENS() = takes(0) returns(0) {
-    // loop does not consider array length 0
-
     0x64 calldataload                                                                       // [ordersLength]
     0x00                                                                                    // [i, ordersLength]
 
-    loop1:                                                                                  // [i, ordersLength]
+    dup2 iszero DISTRIBUTE_TOKENS_continue jumpi
 
+    loop1:                                                                                  // [i, ordersLength]
         // store indexOffset
         dup1 0x20 mul                                                                       // [indexOffset, i, ordersLength]
-        // LOG_STACK_2(0x00)
 
         // store contextOffset
-        0x84 add                                                                            // [contextOffset, i, ordersLength]
-        // LOG_STACK_2(0x00)
-
+        0x84 add                                                                            // [calldataload(add(0x84, indexOffset)), i, ordersLength]
+        calldataload 0x84 add                                                               // [contextOffset, i, ordersLength]
+        
         // store outputs length offset
-        dup1 calldataload                                                                   // [calldataload(contextOffset), contextOffset, i, ordersLength]
-        0x64 add                                                                            // [add(calldataload(contextOffset), 0x64), contextOffset, i, ordersLength]
-        0x80 add calldataload                                                               // [calldataload(add(add(calldataload(contextOffset), 0x64), 0x80)), contextOffset, i, ordersLength]
-        add                                                                                 // [outputsLengthOffset, i, ordersLength]
-        // LOG_STACK_2(0x00)
+        dup1 0x80 add                                                                       // [add(contextOffset, 0x80), contextOffset, i, ordersLength]
+        calldataload add                                                                    // [outputsLengthOffset, i, ordersLength]
 
         // also store outputs length
         dup1 calldataload                                                                   // [outputsLength, outputsLengthOffset, i, ordersLength]
 
         // store j
-        0x00 swap1                                                                          // [outputsLengthOffset, j, outputsLength, i, ordersLength]
+        0x00 swap1 swap2                                                                    // [outputsLengthOffset, j, outputsLength, i, ordersLength]
 
-        // LOG_STACK_4(0x00)
-        loop2:                                                                                  // [outputsLengthOffset, j, outputsLength, i, ordersLength]
-            dup1 0x20 add calldataload                                                          // [token, outputsLengthOffset, j, outputsLength, i, ordersLength]
-            dup2 0x40 add calldataload                                                          // [amount, token, outputsLengthOffset, j, outputsLength, i, ordersLength]
-            dup3 0x60 add calldataload                                                          // [to, amount, token, ooutputsLengthOffset, j, outputsLength, i, ordersLength]
-        LOG_STACK_4(0x00)
+        // no loop if length is 0
+        dup3 iszero DISTRIBUTE_TOKENS_loop1_continue jumpi
 
-            SAFE_TRANSFER(0x00)                                                                 // [outputsLengthOffset, j, outputsLength, i, ordersLength]
-            pop                                                                                 // [j, outputsLength, i, ordersLength]
+        loop2:                                                                              // [outputsLengthOffset, j, outputsLength, i, ordersLength]
+            dup2 0x60 mul dup2 add                                                              // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
 
-            // update j
-            0x01 add                                                                            // [j, outputsLength, i, ordersLength]
-            dup2 calldataload dup2 eq                                                           // [(j == outputsLength), j, outputsLength, i, ordersLength]
-            loop2 jumpi                                                                         // [j, outputsLength, i, ordersLength]
+            dup1 0x20 add calldataload                                                          // [token, currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+            dup2 0x40 add calldataload                                                          // [amount, token, currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+            dup3 0x60 add calldataload                                                          // [to, amount, token, currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
 
-            pop pop                                                                            // [i, ordersLength]
+            // transfer eth if token is 0x00 else transfer token
+            dup3 transfer_token jumpi                                                           // [to, amount, token, currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+            SAFE_TRANSFER_ETH() pop                                                             // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+            DISTRIBUTE_TOKENS_loop2_continue jump                                               // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+
+            transfer_token:                                                                     // [to, amount, token, currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+                SAFE_TRANSFER(0x00)                                                                 // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+
+            DISTRIBUTE_TOKENS_loop2_continue:                                                   // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+                pop                                                                                 // [outputsLengthOffset, j, outputsLength, i, ordersLength]
+                // update j
+                swap1 0x01 add                                                                      // [j, outputsLengthOffset, outputsLength, i, ordersLength]
+                dup3 dup2 lt                                                                        // [(j < outputsLength), j, outputsLengthOffset, outputsLength, i, ordersLength]
+                swap1 swap2 swap1                                                                   // [(j < outputsLength), outputsLengthOffset, j, outputsLength, i, ordersLength]
+
+                loop2 jumpi                                                                     // [outputsLengthOffset, j, outputsLength, i, ordersLength]
 
 
-
-    // update i and end loop if i == orders.length
-    0x01 add                                                                                // [i, ordersLength]
-    dup2 dup2 eq                                                                            // [(i == ordersLength), i, ordersLength]
-    DISTRIBUTE_TOKENS_continue jumpi                                                        // [i, ordersLength]
+    DISTRIBUTE_TOKENS_loop1_continue:                                                           // [outputsLengthOffset, j, outputsLength, i, ordersLength]
+        pop pop pop                                                                             // [i, ordersLength]
+        // update i and end loop if i == orders.length
+        0x01 add                                                                                // [i, ordersLength]
+        dup2 dup2 lt iszero                                                                     // [(i == ordersLength), i, ordersLength]
+        DISTRIBUTE_TOKENS_continue jumpi                                                        // [i, ordersLength]
 
     loop1 jump
 
@@ -387,12 +401,6 @@
     DISTRIBUTE_TOKENS_continue:                                                             // [i, ordersLength]
 
 }
-
-
-
-
-
-
 
 /// @notice Safely transfers an `amount` of eth to the address `to`
 /// @dev use this over huffmate safe transfer eth to change `push1 0x00`'s and `dup1`'s to returndatasize
@@ -413,6 +421,22 @@
 }
 
 
+
+#define macro ONLY_OWNER() = takes (0) returns (0) {
+    [OWNER] sload                                                                           // [owner]
+    caller eq authed jumpi                                                                  // []
+     
+    // revert with "UNAUTHORIZED"
+    __ERROR(UNAUTHORIZED) 0x00 mstore
+    0x04 0x00 revert
+
+
+    authed:                                                                                 // []
+}
+
+
+
+
 #define macro GET_BALANCE_OF() = takes(0) returns(1) {
     // returns balance of token0 and token1
     // safe to assume they both have code deployed to them as adding liquidity for them in this pair wouldn't have been possible otherwise
@@ -431,18 +455,6 @@
 
     GET_BALANCE_OF_continue:                                                                // [weth.balanceOf(address(this))]
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 #define macro REVERT_IF_MsgSenderNotReactor() = takes(0) returns(0) {
@@ -466,19 +478,6 @@
 
     REVERT_IF_CallerNotWhitelisted_continue:                                                // []
 }
-
-#define macro ONLY_OWNER() = takes (0) returns (0) {
-    [OWNER] sload                                                                           // [owner]
-    caller eq authed jumpi                                                                  // []
-     
-    // revert with "UNAUTHORIZED"
-    __ERROR(UNAUTHORIZED) 0x00 mstore
-    0x04 0x00 revert
-
-
-    authed:                                                                                 // []
-}
-
 
 
 #define macro BUBBLE_UP_ERROR() = takes(0) returns(0) {

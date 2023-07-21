@@ -5,7 +5,7 @@ import {GasSnapshot} from "forge-gas-snapshot/GasSnapshot.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 // import {SwapRouter02Executor} from "uniswapx/src/sample-executors/SwapRouter02Executor.sol";
-import {SwapRouter02Executor} from "../../src/SwapRouter02ExecutorYul.sol";
+import {SwapRouter02Executor} from "../../src/YulMock/SwapRouter02ExecutorYul.sol";
 import {DutchOrderReactor, DutchOrder, DutchInput, DutchOutput} from "uniswapx/src/reactors/DutchOrderReactor.sol";
 import {MockERC20} from "uniswapx/test/util/mock/MockERC20.sol";
 import {ERC20} from "solmate/src/tokens/ERC20.sol";
@@ -19,7 +19,6 @@ import {OutputsBuilder} from "uniswapx/test/util/OutputsBuilder.sol";
 import {PermitSignature} from "uniswapx/test/util/PermitSignature.sol";
 import {ISwapRouter02, ExactInputParams} from "uniswapx/src/external/ISwapRouter02.sol";
 import {console2} from "forge-std/console2.sol";
-import {Vm} from "forge-std/Vm.sol";
 import {HuffDeployer} from "foundry-huff/HuffDeployer.sol";
 
 // This set of tests will use a mock swap router to simulate the Uniswap swap router.
@@ -30,6 +29,10 @@ contract SwapRouter02ExecutorTest is
     DeployPermit2
 {
     using OrderInfoBuilder for OrderInfo;
+
+    error TransferFailed();
+    error InsufficientOutput(uint256, uint256);
+    error UNAUTHORIZED();
 
     uint256 fillerPrivateKey;
     uint256 swapperPrivateKey;
@@ -77,32 +80,18 @@ contract SwapRouter02ExecutorTest is
         //     address(this),
         //     ISwapRouter02(address(mockSwapRouter))
         // );
-
+        string memory unitConstantsWrapper = vm.readFile(
+            "test/HuffWrappers/UnitConstantsWrapper.huff"
+        );
         swapRouter02Executor = SwapRouter02Executor(
             payable(
                 HuffDeployer
                     .config()
+                    .with_code(unitConstantsWrapper)
                     .with_args(abi.encode(address(this)))
                     .deploy("SwapRouter02Executor")
             )
         );
-
-        // vm.etch(
-        //     address(swapRouter02Executor),
-        //     hex"5f3560e01c80639943fa891461009157806363fb0b96146102f25780638d4558e614610460578063690d83201461055d57806313af40351461004b5780638da5cb5b146100845761008d565b335f5414610057575f5ffd5b600435805f55337f8292fce18fa69edf4db7b94ea2e58241df0ae57f97e0a6c9b29067028bf92d765f5fa3005b5f545f5260205ff35b5f5ffd5b3373c7183455a4c133ae270771860664b6b7ec320bb1146100d5577f933fe52f000000000000000000000000000000000000000000000000000000005f526004601cfd5b602435737fa9385be102ac3eac297483dd6233d62b3e14961461011b577f8c6e5d71000000000000000000000000000000000000000000000000000000005f526004601cfd5b604435806040013590602001355f90806020355b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7368b3465833fb72a70ecdf485e0e4c7bd8665fc457f095ea7b30000000000000000000000000000000000000000000000000000000060005260006004015260006024015260006044815f6020945af13d1560005160011417166101bb57633e3f8f735f526004601cfd5b6001018181146101d1578060200282013561012f565b5050602081033603807fd6a0e487000000000000000000000000000000000000000000000000000000005f527fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff600452602060245281906044355f5f915f5f7368b3465833fb72a70ecdf485e0e4c7bd8665fc455af1610253573d5f5f3e3d5ffd5b5b6064355f6084355b60c001355f5b6060810282018060600135816040013582602001357fa9059cbb0000000000000000000000000000000000000000000000000000000060005260006004015260006024015260006044815f6020945af13d1560005160011417166102cd576390b8ec185f526004601cfd5b506001018181146102625750506001018181146102f0578060200260840161025c565b005b5f54331461032c5760205f52600c6020527f554e415554484f52495a4544000000000000000000000000000000000000000060405260605ffd5b6004356024355f90806020355b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7368b3465833fb72a70ecdf485e0e4c7bd8665fc457f095ea7b30000000000000000000000000000000000000000000000000000000060005260006004015260006024015260006044815f6020945af13d1560005160011417166103c557633e3f8f735f526004601cfd5b6001018181146103db5780602002820135610339565b5050602081033603807fd6a0e487000000000000000000000000000000000000000000000000000000005f527fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff600452602060245281906044355f5f915f5f7368b3465833fb72a70ecdf485e0e4c7bd8665fc455af161045d573d5f5f3e3d5ffd5b5b005b5f54331461049a5760205f52600c6020527f554e415554484f52495a4544000000000000000000000000000000000000000060405260605ffd5b7f70a08231000000000000000000000000000000000000000000000000000000003d523060045260205f60243d73c02aaa39b223fe8d0a0e5c4f27ead9083c756cc25afa156104ea575f516104ee565b3434fd5b7f2e1a7d4d000000000000000000000000000000000000000000000000000000005f526004525f5f60245f73c02aaa39b223fe8d0a0e5c4f27ead9083c756cc25afa1561055557476004355f8080809490935af16105535763b12d13eb5f526004601cfd5b005b3d5f5f3e3d5ffd5b5f5433146105975760205f52600c6020527f554e415554484f52495a4544000000000000000000000000000000000000000060405260605ffd5b476004353d3d3d3d9490935af16105b55763b12d13eb5f526004601cfd5b00"
-        // );
-        // vm.store(
-        //     address(swapRouter02Executor),
-        //     bytes32(0),
-        //     bytes32(uint256(uint160(address(this))))
-        // );
-
-        console2.log("len", address(swapRouter02Executor).code.length);
-        console2.log("weth", address(weth));
-        console2.log("executor", address(swapRouter02Executor));
-        console2.log("reactor", address(reactor));
-        console2.log("mockswap router", address(mockSwapRouter));
-        console2.log("this", address(this));
 
         // Do appropriate max approvals
         tokenIn.forceApprove(swapper, address(permit2), type(uint256).max);
@@ -209,9 +198,6 @@ contract SwapRouter02ExecutorTest is
         assertEq(tokenOut.balanceOf(address(swapRouter02Executor)), ONE / 2);
     }
 
-    error TransferFailed();
-    error InsufficientOutput(uint256, uint256);
-
     // Requested output = 2 & input = 1. SwapRouter swaps at 1 to 1 rate, so there will
     // there will be an overflow error when reactor tries to transfer 2 outputToken out of fill contract.
     function testExecuteInsufficientOutput() public {
@@ -250,9 +236,7 @@ contract SwapRouter02ExecutorTest is
             exactInputParams
         );
 
-        vm.expectRevert(
-            abi.encodeWithSelector(InsufficientOutput.selector, 0, 2e18)
-        );
+        vm.expectRevert(TransferFailed.selector);
         reactor.execute(
             SignedOrder(
                 abi.encode(order),
@@ -451,8 +435,6 @@ contract SwapRouter02ExecutorTest is
         uint256 balanceAfter = address(this).balance;
         assertEq(balanceAfter - balanceBefore, 1 ether);
     }
-
-    error UNAUTHORIZED();
 
     function testUnwrapWETHNotOwner() public {
         vm.expectRevert(UNAUTHORIZED.selector);

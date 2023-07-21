@@ -12,7 +12,7 @@ import {ResolvedOrder, OutputToken} from "uniswapx/src/base/ReactorStructs.sol";
 import {ISwapRouter02} from "uniswapx/src/external/ISwapRouter02.sol";
 import {console2} from "forge-std/console2.sol";
 
-/// @notice A fill contract that uses SwapRouter02 to execute trades
+/// @notice Yul rewrite to better understand and (debug) the low level layout
 contract SwapRouter02Executor is IReactorCallback, Owned {
     using SafeTransferLib for ERC20;
     using CurrencyLibrary for address;
@@ -50,6 +50,8 @@ contract SwapRouter02Executor is IReactorCallback, Owned {
         address filler,
         bytes calldata fillData
     ) external {
+        address swap = address(swapRouter02);
+
         if (msg.sender != address(reactor)) {
             revert MsgSenderNotReactor();
         }
@@ -69,57 +71,96 @@ contract SwapRouter02Executor is IReactorCallback, Owned {
             );
         }
 
-        swapRouter02.multicall(type(uint256).max, multicallData);
-
-        for (uint256 i = 0; i < resolvedOrders.length; i++) {
-            ResolvedOrder memory order = resolvedOrders[i];
-            for (uint256 j = 0; j < order.outputs.length; j++) {
-                OutputToken memory output = order.outputs[j];
-                output.token.transfer(output.recipient, output.amount);
-            }
-        }
-
-        console2.log("omo");
+        // samples, no compliancs for memory rules here
         assembly {
+            mstore(0x80, hex"5ae401dc")
+            mstore(
+                0x84,
+                0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+            )
+            mstore(0xa4, 0x40)
+
+            let offset := add(
+                fillData.offset,
+                calldataload(add(0x20, fillData.offset))
+            )
+            let totalLength := sub(calldatasize(), offset)
+            calldatacopy(0xc4, offset, totalLength)
+
+            let success := call(
+                gas(),
+                swap,
+                0x00,
+                0x80,
+                add(totalLength, 0x44),
+                0x00,
+                0x00
+            )
+
+            if iszero(success) {
+                revert(0x00, 0x00)
+            }
+
             for {
                 let i := 0
             } lt(i, resolvedOrders.length) {
                 i := add(i, 0x01)
             } {
                 let indexOffset := mul(0x20, i)
-                let contextOffset := add(0x84, indexOffset)
+                let contextOffset := add(
+                    0x84,
+                    calldataload(add(0x84, indexOffset))
+                )
 
                 let outputsLengthOffset := add(
-                    calldataload(
-                        add(add(calldataload(contextOffset), 0x64), 0x80)
-                    ),
+                    calldataload(add(contextOffset, 0x80)),
                     contextOffset
                 )
                 let outputsLength := calldataload(outputsLengthOffset)
+
                 for {
                     let j := 0
                 } lt(j, outputsLength) {
                     j := add(j, 0x01)
                 } {
-                    let token := calldataload(add(0x20, outputsLengthOffset))
-                    let amount := calldataload(add(0x40, outputsLengthOffset))
+                    let outputsLengthOffset2 := add(
+                        outputsLengthOffset,
+                        mul(0x60, j)
+                    )
+
+                    let token := calldataload(add(0x20, outputsLengthOffset2))
+                    let amount := calldataload(add(0x40, outputsLengthOffset2))
                     let recipient := calldataload(
-                        add(0x60, outputsLengthOffset)
+                        add(0x60, outputsLengthOffset2)
                     )
 
-                    mstore(0x00, hex"a9059cbb")
-                    mstore(0x04, recipient)
-                    mstore(0x24, amount)
+                    switch eq(token, 0x00)
+                    case 0 {
+                        mstore(0x80, hex"a9059cbb")
+                        mstore(0x84, recipient)
+                        mstore(0xa4, amount)
 
-                    let success := and(
-                        // Set success to whether the call reverted, if not we check it either
-                        // returned exactly 1 (can't just be non-zero data), or had no return data.
-                        or(
-                            and(eq(mload(0), 1), gt(returndatasize(), 31)),
-                            iszero(returndatasize())
-                        ),
-                        call(gas(), token, 0x00, 0x00, 0x44, 0x00, 0x00)
-                    )
+                        success := and(
+                            // Set success to whether the call reverted, if not we check it either
+                            // returned exactly 1 (can't just be non-zero data), or had no return data.
+                            or(
+                                and(eq(mload(0), 1), gt(returndatasize(), 31)),
+                                iszero(returndatasize())
+                            ),
+                            call(gas(), token, 0x00, 0x80, 0x44, 0x00, 0x20)
+                        )
+                    }
+                    case 1 {
+                        success := call(
+                            gas(),
+                            recipient,
+                            amount,
+                            0x00,
+                            0x00,
+                            0x00,
+                            0x00
+                        )
+                    }
 
                     if iszero(success) {
                         mstore(0x00, 0x20)
