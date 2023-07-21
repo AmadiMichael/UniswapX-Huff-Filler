@@ -1,6 +1,6 @@
 /// @title UniswapX Filler Swap02Router Executor
 /// @author Michael Amadi
-/// @notice UniswapX Filler Swap02Router Executor used to dynamically swap between Uniswap V2 and V3 pools written in Huff 
+/// @notice UniswapX Filler Swap02Router Executor used to dynamically swap between Uniswap V2 and V3 pools using the SwapRouter02 contract written in Huff 
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -177,13 +177,12 @@
     REVERT_IF_MsgSenderNotReactor()                                                         // []
     REVERT_IF_CallerNotWhitelisted()                                                        // []
 
-
     // approve and swap tokens
     0x44 calldataload 0x04 add                                                              // [fillDataOffset]     
     dup1 0x40 add                                                                           // [offsetToMulticallDatalengthOffset, fillDataOffset]        
     swap1 0x20 add                                                                          // [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
     APPROVE_AND_SWAP_TOKENS()                                                               // []
-
+    
 
     // distribute tokens
     DISTRIBUTE_TOKENS()
@@ -308,13 +307,13 @@
 
     // approve
     dup1 calldataload add
-    dup1 calldataload                                                                      // [tokensToApproveLength, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
-
-    // no loop is length is 0
-    dup2 iszero multicall_exec jumpi
+    dup1 calldataload                                                                       // [tokensToApproveLength, tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
 
     0x00 swap1 swap2                                                                        // [tokensToApproveLengthOffset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
     0x20 add                                                                                // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+
+    // no loop is length is 0
+    dup3 iszero multicall_exec jumpi                                                        // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
 
     loop:                                                                                   // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
         dup1 dup3 0x20 mul add calldataload                                                 // [tokensToApprove[i], tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
@@ -339,7 +338,7 @@
         loop jump                                                                           // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
 
 
-    multicall_exec:                                                                         // [i, tokensToApprove[0]Offset, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+    multicall_exec:                                                                         // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
         pop pop pop                                                                         // [offsetToMulticallDatalengthOffset]
         // multicall
 
