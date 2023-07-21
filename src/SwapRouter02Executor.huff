@@ -1,32 +1,53 @@
-///@author Michael Amadi
+/// @title UniswapX Filler Swap02Router Executor
+/// @author Michael Amadi
+/// @notice UniswapX Filler Swap02Router Executor used to dynamically swap between Uniswap V2 and V3 pools written in Huff 
 
 
-// Inherited Imports
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////// IMOORTS /////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "huffmate/auth/Owned.huff"
 #include "huffmate/utils/SafeTransferLib.huff"
 #include "huffmate/utils/Constants.huff"
 #include "huff-console/Console.huff"
 
 
-// Self interface
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////// SELF INETRFACE /////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // #define function reactorCallback(((address reactor, address swapper, uint256 nonce, uint256 deadline, address additionalValidationContract, bytes additionalValidationData) info, (address token, uint256 amount, uint256 maxAmount) input, (address token, uint256 amount, address recipient)[] outputs, bytes sig, bytes32 hash)[] resolvedOrders, address filler, bytes fillData) returns()
 #define function multicall(address[] tokensToApprove, bytes[] multicallData) payable returns()
 #define function unwrapWETH(address recipient) payable returns()
 #define function withdrawETH(address recipient) payable returns()
 
 
-// Errors
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////// ERRORS //////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define error CallerNotWhitelisted()
 #define error MsgSenderNotReactor()
 #define error UNAUTHORIZED()
+#define error NotAContract()
 
 
-// constants
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////// CONSTANTS ///////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define constant REACTOR_CALLBACK_FUNC_SIG = 0x9943fa89
 // Use wrappers as replacement for immutable variables
 
+// #define constant SWAP_ROUTER_02 = ...
+// #define constant WHITELISTED_CALLER = ...
+// #define constant REACTOR = ...
+// #define constant WETH = ...
 
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////// CONSTRUCTOR //////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define macro CONSTRUCTOR() = {
     // wen huff immutable runtime code appending ?
     // for now use huff constants
@@ -34,7 +55,9 @@
 }
 
 
-
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////// FUCNTION DISPATCHER ///////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define macro MAIN() = {
     0x00 calldataload 0xe0 shr                                                              // [func-sig]
 
@@ -74,6 +97,10 @@
 
 
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////// FUNCTIONS ///////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Signature = `reactorCallback(((address,address,uint256,uint256,address,bytes),(address,uint256,uint256),(address,uint256,address)[],bytes,bytes32)[],address,bytes)`
@@ -207,7 +234,12 @@
 }
 
 
-
+/**
+ * Signature = `unwrapEth(address recipient)`
+ * 
+ * 0x00 <-> 0x04: 
+ * 0x04 <-> 0x24: recipient
+ */
 #define macro UNWRAP_WETH() = {
     // only owner
     ONLY_OWNER()
@@ -218,6 +250,7 @@
     // Note: cannot use returndatasize in any of the calls below to replace 0x00 as data (32 bytes) has been returned already from balanceOf above
 
     // unwrap weth
+    // note: assume WETH is the right WETH contract so no check for if its a contract
     __RIGHTPAD(0x2e1a7d4d) 0x00 mstore                                                      // [this.wethBalance]
     0x04 mstore                                                                             // []
     0x00 0x00 0x24 0x00                                                                     // [in, insize, out, outsize]
@@ -241,7 +274,12 @@
 }
 
 
-
+/**
+ * Signature = `withdrawEth(address recipient)`
+ * 
+ * 0x00 <-> 0x04: 
+ * 0x04 <-> 0x24: recipient
+ */
 #define macro WITHDRAW_ETH() = {
     // only owner
     ONLY_OWNER()
@@ -261,7 +299,11 @@
 
 
 
-/// INTERNAL MACROS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////// INTERNAL ////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+///@notice loops through, approves tokens and swaps via swapRouter02 contract
 #define macro APPROVE_AND_SWAP_TOKENS() = takes(0) returns(0) {
     // input stack = [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
 
@@ -277,6 +319,10 @@
 
     loop:                                                                                   // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
         dup1 dup3 0x20 mul add calldataload                                                 // [tokensToApprove[i], tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+
+        // check its a contract
+        dup1 REVERT_IF_NotAContract()                                                       // [tokensToApprove[i], tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
+
         [__UINT256_MAX] [SWAP_ROUTER_02]                                                    // [spender, value, tokensToApprove[i], tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
         SAFE_APPROVE(0x00)                                                                  // [tokensToApprove[0]Offset, i, tokensToApproveLength, offsetToMulticallDatalengthOffset]
 
@@ -302,6 +348,7 @@
 }
 
 
+///@notice loops through and swaps tokens via swapRouter02
 #define macro INTERNAL_MULTICALL() = {
     // input stack = [offsetToMulticallDatalengthOffset]
 
@@ -322,6 +369,7 @@
     // copy data into mem
     dup1 swap2 0x44 calldatacopy                                                            // [multicallDataSize]
     
+    // note: assume SWAP_ROUTER_02 is the right SWAP_ROUTER_02 contract so no check for if its a contract
     0x00 0x00                                                                               // [0x00, 0x00, multicallDataSize]
     swap2 0x44 add 0x00                                                                     // [0x00, multicallDataSize, 0x00, 0x00]
     0x00 [SWAP_ROUTER_02]                                                                   // [to, value, 0x00, multicallDataSize, 0x00, 0x00]
@@ -335,7 +383,7 @@
 }
 
 
-
+/// @notice sends all tokens in orders[i].outputs[j] struct based on parameters
 // 0x64 will always be the offset for length of orders
 #define macro DISTRIBUTE_TOKENS() = takes(0) returns(0) {
     0x64 calldataload                                                                       // [ordersLength]
@@ -377,6 +425,8 @@
             DISTRIBUTE_TOKENS_loop2_continue jump                                               // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
 
             transfer_token:                                                                     // [to, amount, token, currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
+                // check token is a contract
+                dup3 REVERT_IF_NotAContract()                                                       // [to, amount, token, currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
                 SAFE_TRANSFER(0x00)                                                                 // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
 
             DISTRIBUTE_TOKENS_loop2_continue:                                                   // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
@@ -422,7 +472,7 @@
 }
 
 
-
+/// @notice Only owner modifier
 #define macro ONLY_OWNER() = takes (0) returns (0) {
     [OWNER] sload                                                                           // [owner]
     caller eq authed jumpi                                                                  // []
@@ -437,11 +487,8 @@
 
 
 
-
+///@notice gets weth balance of address(this) of a token
 #define macro GET_BALANCE_OF() = takes(0) returns(1) {
-    // returns balance of token0 and token1
-    // safe to assume they both have code deployed to them as adding liquidity for them in this pair wouldn't have been possible otherwise
-
     __RIGHTPAD(0x70a08231) returndatasize mstore                                            // []
     address 0x04 mstore                                                                     // []
     0x20 0x00 0x24 returndatasize                                                           // [in, insize, out, outsize]
@@ -456,6 +503,19 @@
 
     GET_BALANCE_OF_continue:                                                                // [weth.balanceOf(address(this))]
 }
+
+
+/// @notice reverts if address has no code deployed to it
+#define macro REVERT_IF_NotAContract() = takes(1) returns(0) {
+    // expected input: [address]
+    extcodesize REVERT_IF_NOT_A_CONTRACT_continue jumpi                                     // []
+    __ERROR(NotAContract) 0x00 mstore                                                       // []
+    0x04 0x1c revert
+
+    REVERT_IF_NOT_A_CONTRACT_continue:
+}
+
+
 
 
 #define macro REVERT_IF_MsgSenderNotReactor() = takes(0) returns(0) {
