@@ -4,7 +4,7 @@
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////// IMOORTS /////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////// IMPORTS /////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "huffmate/auth/Owned.huff"
 #include "huffmate/utils/SafeTransferLib.huff"
@@ -37,7 +37,6 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define constant REACTOR_CALLBACK_FUNC_SIG = 0x9943fa89
 // Use wrappers as replacement for immutable variables
-
 // #define constant SWAP_ROUTER_02 = ...
 // #define constant WHITELISTED_CALLER = ...
 // #define constant REACTOR = ...
@@ -58,7 +57,7 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////// FUCNTION DISPATCHER ///////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define macro MAIN() = {
+#define macro MAIN() = takes(0) returns(0) {
     0x00 calldataload 0xe0 shr                                                              // [func-sig]
 
     // dispatch
@@ -174,7 +173,7 @@
  * 0x504 <-> 0x524: 0x488 (length of `multicallData`[1])
  * 0x524 <-> (0x524 + 0x488) || 0x9c0: `multicallData`[1]
  */
-#define macro REACTOR_CALLBACK() = {
+#define macro REACTOR_CALLBACK() = takes(0) returns(0) {
     REVERT_IF_MsgSenderNotReactor()                                                         // []
     REVERT_IF_CallerNotWhitelisted()                                                        // []
 
@@ -220,7 +219,7 @@
  * 0x184 <-> 0x1a4: 0x488 (length of `multicallData`[1])
  * 0x1a4 <-> (0x1a4 + 0x488): `multicallData`[1]
  */
-#define macro MULTICALL() = {
+#define macro MULTICALL() = takes(0) returns(0) {
     // only owner
     ONLY_OWNER()
 
@@ -240,7 +239,7 @@
  * 0x00 <-> 0x04: 
  * 0x04 <-> 0x24: recipient
  */
-#define macro UNWRAP_WETH() = {
+#define macro UNWRAP_WETH() = takes(0) returns(0) {
     // only owner
     ONLY_OWNER()
 
@@ -280,7 +279,7 @@
  * 0x00 <-> 0x04: 
  * 0x04 <-> 0x24: recipient
  */
-#define macro WITHDRAW_ETH() = {
+#define macro WITHDRAW_ETH() = takes(0) returns(0) {
     // only owner
     ONLY_OWNER()
 
@@ -300,11 +299,11 @@
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////// INTERNAL ////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////// INTERNAL & HELPERS ////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 ///@notice loops through, approves tokens and swaps via swapRouter02 contract
-#define macro APPROVE_AND_SWAP_TOKENS() = takes(0) returns(0) {
+#define macro APPROVE_AND_SWAP_TOKENS() = takes(2) returns(0) {
     // input stack = [tokensToApproveLengthOffset, offsetToMulticallDatalengthOffset]
 
     // approve
@@ -349,7 +348,7 @@
 
 
 ///@notice loops through and swaps tokens via swapRouter02
-#define macro INTERNAL_MULTICALL() = {
+#define macro INTERNAL_MULTICALL() = takes(1) returns(0) {
     // input stack = [offsetToMulticallDatalengthOffset]
 
     // multicall
@@ -361,7 +360,9 @@
     0x40 0x24 mstore                                                                        // [offsetToMulticallDatalengthOffset]
 
     // get offset
-    dup1 calldataload swap1 0x20 swap1 sub add                                              // [offset]
+    dup1 calldataload                                                                       // [multicallDatalengthOffset, offsetToMulticallDatalengthOffset]
+    swap1 0x20 swap1                                                                        // [offsetToMulticallDatalengthOffset, 0x20, multicallDatalengthOffset]
+    sub add                                                                                 // [offset]
 
     // get totalLength
     dup1 calldatasize sub                                                                   // [multicallDataSize, offset]
@@ -384,11 +385,12 @@
 
 
 /// @notice sends all tokens in orders[i].outputs[j] struct based on parameters
-// 0x64 will always be the offset for length of orders
+/// @dev 0x64 will always be the offset for length of orders
 #define macro DISTRIBUTE_TOKENS() = takes(0) returns(0) {
     0x64 calldataload                                                                       // [ordersLength]
     0x00                                                                                    // [i, ordersLength]
 
+    // no loop if length is 0
     dup2 iszero DISTRIBUTE_TOKENS_continue jumpi
 
     loop1:                                                                                  // [i, ordersLength]
@@ -486,7 +488,6 @@
 }
 
 
-
 ///@notice gets weth balance of address(this) of a token
 #define macro GET_BALANCE_OF() = takes(0) returns(1) {
     __RIGHTPAD(0x70a08231) returndatasize mstore                                            // []
@@ -505,6 +506,10 @@
 }
 
 
+
+
+
+
 /// @notice reverts if address has no code deployed to it
 #define macro REVERT_IF_NotAContract() = takes(1) returns(0) {
     // expected input: [address]
@@ -515,9 +520,7 @@
     REVERT_IF_NOT_A_CONTRACT_continue:
 }
 
-
-
-
+/// @notice revert if msg sender is not reactor address
 #define macro REVERT_IF_MsgSenderNotReactor() = takes(0) returns(0) {
     caller [REACTOR] eq                                                                     // [msg.sender == address(reactor)]
     REVERT_IF_MsgSenderNotReactor_continue jumpi                                            // []
@@ -528,7 +531,7 @@
     REVERT_IF_MsgSenderNotReactor_continue:                                                 // []
 }
 
-
+/// @notice revert if caller is not whitelisted
 #define macro REVERT_IF_CallerNotWhitelisted() = {
     0x24 calldataload                                                                       // [filler]
     [WHITELISTED_CALLER] eq                                                                 // [filler == whitelistedCaller]
@@ -540,7 +543,7 @@
     REVERT_IF_CallerNotWhitelisted_continue:                                                // []
 }
 
-
+/// @notice bubbles up error message from call and reverts with it
 #define macro BUBBLE_UP_ERROR() = takes(0) returns(0) {
     returndatasize 0x00 0x00 returndatacopy                                                 // []
     returndatasize 0x00 revert                                                              // []
