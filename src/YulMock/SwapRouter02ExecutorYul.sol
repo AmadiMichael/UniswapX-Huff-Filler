@@ -144,7 +144,10 @@ contract SwapRouter02Executor is IReactorCallback, Owned {
                             // Set success to whether the call reverted, if not we check it either
                             // returned exactly 1 (can't just be non-zero data), or had no return data.
                             or(
-                                and(eq(mload(0), 1), gt(returndatasize(), 31)),
+                                and(
+                                    eq(mload(0x00), 0x01),
+                                    gt(returndatasize(), 0x19)
+                                ),
                                 iszero(returndatasize())
                             ),
                             call(gas(), token, 0x00, 0x80, 0x44, 0x00, 0x20)

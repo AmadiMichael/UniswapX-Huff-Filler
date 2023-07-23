@@ -49,8 +49,5 @@ contract DeploySwapRouter02Executor is Script {
             )
         );
         vm.stopBroadcast();
-
-        console2.log("SwapRouter02Executor", address(executor));
-        console2.log("owner", executor.owner());
     }
 }

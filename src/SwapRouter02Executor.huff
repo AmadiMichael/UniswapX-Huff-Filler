@@ -1,5 +1,5 @@
 /// @title UniswapX Filler Swap02Router Executor
-/// @author Michael Amadi
+/// @author Michael Amadi `https://github.com/AmadiMichael`
 /// @notice UniswapX Filler Swap02Router Executor used to dynamically swap between Uniswap V2 and V3 pools using the SwapRouter02 contract written in Huff 
 
 
@@ -89,7 +89,6 @@
         WITHDRAW_ETH()
 
 
-    
     RECEIVE:
         stop
 }
@@ -243,7 +242,7 @@
     ONLY_OWNER()
 
     // get weth balance
-    GET_BALANCE_OF()                                                                        // [this.wethBalance]
+    GET_WETH_BALANCE_OF()                                                                   // [this.wethBalance]
 
     // Note: cannot use returndatasize in any of the calls below to replace 0x00 as data (32 bytes) has been returned already from balanceOf above
 
@@ -253,21 +252,22 @@
     0x04 mstore                                                                             // []
     0x00 0x00 0x24 0x00                                                                     // [in, insize, out, outsize]
     0x00 [WETH] gas call                                                                    // [success]
-    iszero unwrapETHFailed jumpi                                                            // []
+    iszero UNWRAP_WETH_continue jumpi                                                       // []
 
 
     // send all eth
     selfbalance                                                                             // [address(this).balance]
     0x04 calldataload                                                                       // [recipient, address(this).balance]
+
     // use safe transfer eth which does not use returndatasize
-    SAFE_TRANSFER_ETH()                                                                     // []                                                                     // []
+    SAFE_TRANSFER_ETH()                                                                     // []
 
 
     // stop execution
     stop
 
 
-    unwrapETHFailed:
+    UNWRAP_WETH_continue:
         BUBBLE_UP_ERROR()
 }
 
@@ -285,7 +285,7 @@
     // send all eth
     selfbalance                                                                             // [address(this).balance]
     0x04 calldataload                                                                       // [recipient, address(this).balance]
-    SAFE_TRANSFER_ETH_OVERRIDE()                                                            // []                                                                   // []
+    SAFE_TRANSFER_ETH_OVERRIDE()                                                            // []
 
     stop
 }
@@ -411,7 +411,7 @@
         0x00 swap1 swap2                                                                    // [outputsLengthOffset, j, outputsLength, i, ordersLength]
 
         // no loop if length is 0
-        dup3 iszero DISTRIBUTE_TOKENS_loop1_continue jumpi
+        dup3 iszero DISTRIBUTE_TOKENS_loop1_continue jumpi                                  // [outputsLengthOffset, j, outputsLength, i, ordersLength]
 
         loop2:                                                                              // [outputsLengthOffset, j, outputsLength, i, ordersLength]
             dup2 0x60 mul dup2 add                                                              // [currentOffset, outputsLengthOffset, j, outputsLength, i, ordersLength]
@@ -444,14 +444,13 @@
         pop pop pop                                                                             // [i, ordersLength]
         // update i and end loop if i == orders.length
         0x01 add                                                                                // [i, ordersLength]
-        dup2 dup2 lt iszero                                                                     // [(i == ordersLength), i, ordersLength]
+        dup2 dup2 eq                                                                            // [(i == ordersLength), i, ordersLength]
         DISTRIBUTE_TOKENS_continue jumpi                                                        // [i, ordersLength]
 
-    loop1 jump
+    loop1 jump                                                                              // [i, ordersLength]
 
 
     DISTRIBUTE_TOKENS_continue:                                                             // [i, ordersLength]
-
 }
 
 /// @notice Safely transfers an `amount` of eth to the address `to`
@@ -463,32 +462,31 @@
     returndatasize returndatasize returndatasize returndatasize                             // [0x00, 0x00, 0x00, 0x00, to, amount]
     swap5 swap1 swap4                                                                       // [to, amount, 0x00, 0x00, 0x00, 0x00]
     gas call                                                                                // [call_success]
-    success jumpi                                                                           // []
+    SAFE_TRANSFER_ETH_OVERRIDE_continue jumpi                                               // []
 
     // `ETHTransferFailed()` error
     0xb12d13eb 0x00 mstore
     0x04 0x00 revert
 
-    success:
+    SAFE_TRANSFER_ETH_OVERRIDE_continue:
 }
 
 
 /// @notice Only owner modifier
 #define macro ONLY_OWNER() = takes (0) returns (0) {
     [OWNER] sload                                                                           // [owner]
-    caller eq authed jumpi                                                                  // []
+    caller eq ONLY_OWNER_continue jumpi                                                     // []
      
     // revert with "UNAUTHORIZED"
     __ERROR(UNAUTHORIZED) 0x00 mstore
     0x04 0x00 revert
 
-
-    authed:                                                                                 // []
+    ONLY_OWNER_continue:                                                                    // []
 }
 
 
-///@notice gets weth balance of address(this) of a token
-#define macro GET_BALANCE_OF() = takes(0) returns(1) {
+/// @notice gets weth balance of address(this) of a token
+#define macro GET_WETH_BALANCE_OF() = takes(0) returns(1) {
     __RIGHTPAD(0x70a08231) returndatasize mstore                                            // []
     address 0x04 mstore                                                                     // []
     0x20 0x00 0x24 returndatasize                                                           // [in, insize, out, outsize]
@@ -496,12 +494,12 @@
 
     iszero balanceOfCallFailed jumpi                                                        // []
     0x00 mload                                                                              // [weth.balanceOf(address(this))]
-    GET_BALANCE_OF_continue jump                                                            // [weth.balanceOf(address(this))]
+    GET_WETH_BALANCE_OF_continue jump                                                       // [weth.balanceOf(address(this))]
 
     balanceOfCallFailed:
-        callvalue callvalue revert
+        0x00 0x00 revert
 
-    GET_BALANCE_OF_continue:                                                                // [weth.balanceOf(address(this))]
+    GET_WETH_BALANCE_OF_continue:                                                           // [weth.balanceOf(address(this))]
 }
 
 
@@ -516,7 +514,7 @@
     __ERROR(NotAContract) 0x00 mstore                                                       // []
     0x04 0x1c revert
 
-    REVERT_IF_NOT_A_CONTRACT_continue:
+    REVERT_IF_NOT_A_CONTRACT_continue:                                                      // []
 }
 
 /// @notice revert if msg sender is not reactor address
